@@ -93,26 +93,40 @@ public sealed class DuckingEngineManager : IDisposable
 
     public void ForceRestoreAll()
     {
-        foreach (var engine in _engines)
+        try
         {
-            engine.ForceRestore();
-        }
+            foreach (var engine in _engines)
+            {
+                engine.ForceRestore();
+            }
 
-        var sampleProfile = _settings.Profiles.FirstOrDefault();
-        if (sampleProfile is not null)
+            var sampleProfile = _settings.Profiles.FirstOrDefault();
+            if (sampleProfile is not null)
+            {
+                _coordinator.ForceRestoreAll(_settings.ToEngineSettings(sampleProfile), _selfPid);
+            }
+        }
+        catch (Exception ex)
         {
-            _coordinator.ForceRestoreAll(_settings.ToEngineSettings(sampleProfile), _selfPid);
+            CrashLog.Write(ex);
         }
     }
 
     public void Start()
     {
-        foreach (var engine in _engines)
+        try
         {
-            engine.Start();
-        }
+            foreach (var engine in _engines)
+            {
+                engine.Start();
+            }
 
-        _started = true;
+            _started = true;
+        }
+        catch (Exception ex)
+        {
+            CrashLog.Write(ex);
+        }
     }
 
     public void Stop()

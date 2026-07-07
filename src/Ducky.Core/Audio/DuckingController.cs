@@ -60,7 +60,17 @@ public sealed class DuckingController
             settings.ExcludedProcesses.Select(NormalizeProcessName),
             StringComparer.OrdinalIgnoreCase);
 
-        foreach (var info in SessionEnumerator.GetRenderSessions())
+        IReadOnlyList<AudioSessionInfo> sessions;
+        try
+        {
+            sessions = SessionEnumerator.GetRenderSessions();
+        }
+        catch
+        {
+            return;
+        }
+
+        foreach (var info in sessions)
         {
             if (ShouldSkipSession(info, targetName, selfPid, excluded))
             {

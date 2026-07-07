@@ -20,7 +20,19 @@ public sealed class AudioSessionInfo
 
 public static class SessionEnumerator
 {
-    private static readonly MMDeviceEnumerator DeviceEnumerator = new();
+    private static readonly Lazy<AotDeviceEnumerator?> DeviceEnumerator = new(CreateDeviceEnumerator);
+
+    private static AotDeviceEnumerator? CreateDeviceEnumerator()
+    {
+        try
+        {
+            return new AotDeviceEnumerator();
+        }
+        catch
+        {
+            return null;
+        }
+    }
     private static readonly object CacheLock = new();
     private static readonly TimeSpan DeviceCacheTtl = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan TargetDeviceCacheTtl = TimeSpan.FromSeconds(15);
@@ -38,7 +50,26 @@ public static class SessionEnumerator
     }
 
     public static MMDevice GetDefaultRenderDevice() =>
-        DeviceEnumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
+        GetDefaultRenderDeviceSafe()
+        ?? throw new InvalidOperationException("No default render audio device is available.");
+
+    private static MMDevice? GetDefaultRenderDeviceSafe()
+    {
+        var enumerator = DeviceEnumerator.Value;
+        if (enumerator is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            return enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
+        }
+        catch
+        {
+            return null;
+        }
+    }
 
     public static string NormalizeProcessName(string processName) =>
         processName.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
@@ -131,8 +162,23 @@ public static class SessionEnumerator
         return EnumerateActiveRenderDevices();
     }
 
-    private static List<MMDevice> EnumerateActiveRenderDevices() =>
-        DeviceEnumerator.EnumerateAudioEndPoints(DataFlow.Render, DeviceState.Active).ToList();
+    private static List<MMDevice> EnumerateActiveRenderDevices()
+    {
+        var enumerator = DeviceEnumerator.Value;
+        if (enumerator is null)
+        {
+            return new List<MMDevice>();
+        }
+
+        try
+        {
+            return enumerator.EnumerateAudioEndPoints(DataFlow.Render, DeviceState.Active).ToList();
+        }
+        catch
+        {
+            return new List<MMDevice>();
+        }
+    }
 
     public static MMDevice? FindRenderDeviceByPattern(string deviceNamePattern)
     {
@@ -166,7 +212,17 @@ public static class SessionEnumerator
 
         foreach (var device in GetActiveRenderDevices())
         {
-            if (!device.FriendlyName.Contains(deviceNamePattern, StringComparison.OrdinalIgnoreCase))
+            string friendlyName;
+            try
+            {
+                friendlyName = GetDeviceFriendlyNameSafe(device);
+            }
+            catch
+            {
+                continue;
+            }
+
+            if (!friendlyName.Contains(deviceNamePattern, StringComparison.OrdinalIgnoreCase))
             {
                 continue;
             }
@@ -233,7 +289,11 @@ public static class SessionEnumerator
 
         if (devices.Count == 0)
         {
-            devices.Add(GetDefaultRenderDevice());
+            var fallback = GetDefaultRenderDeviceSafe();
+            if (fallback is not null)
+            {
+                devices.Add(fallback);
+            }
         }
 
         return devices;
@@ -252,13 +312,24 @@ public static class SessionEnumerator
             }
         }
 
-        TryAdd(GetDefaultRenderDevice());
+        var defaultDevice = GetDefaultRenderDeviceSafe();
+        if (defaultDevice is not null)
+        {
+            TryAdd(defaultDevice);
+        }
 
         foreach (var device in GetActiveRenderDevices())
         {
-            if (DeviceHasTargetSession(device, processName))
+            try
             {
-                TryAdd(device);
+                if (DeviceHasTargetSession(device, processName))
+                {
+                    TryAdd(device);
+                }
+            }
+            catch
+            {
+                // Skip devices that fail COM/session enumeration under AOT.
             }
         }
 
@@ -293,7 +364,14 @@ public static class SessionEnumerator
         var result = new List<AudioSessionInfo>();
         foreach (var renderDevice in devices)
         {
-            result.AddRange(GetRenderSessionsForDevice(renderDevice));
+            try
+            {
+                result.AddRange(GetRenderSessionsForDevice(renderDevice));
+            }
+            catch
+            {
+                // Skip devices that fail COM/session enumeration under AOT.
+            }
         }
 
         return result;
@@ -301,39 +379,89 @@ public static class SessionEnumerator
 
     private static IReadOnlyList<AudioSessionInfo> GetRenderSessionsForDevice(MMDevice device)
     {
-        var manager = device.AudioSessionManager;
-        var result = new List<AudioSessionInfo>();
-        var deviceName = device.FriendlyName;
-        var deviceId = device.ID;
-
-        for (var i = 0; i < manager.Sessions.Count; i++)
+        try
         {
-            var session = manager.Sessions[i];
+            var manager = device.AudioSessionManager;
+            var result = new List<AudioSessionInfo>();
+            var deviceName = GetDeviceFriendlyNameSafe(device);
+            var deviceId = GetDeviceIdSafe(device);
+
+            int sessionCount;
             try
             {
-                var pid = GetSessionProcessId(session);
-                var processName = pid > 0 ? GetProcessName((int)pid) : string.Empty;
-                var isSystem = IsSystemSoundsSession(session, pid);
-
-                result.Add(new AudioSessionInfo
-                {
-                    Session = session,
-                    ProcessId = pid,
-                    ProcessName = processName,
-                    SessionId = GetSessionIdentifierSafe(session),
-                    DisplayName = session.DisplayName ?? string.Empty,
-                    DeviceName = deviceName,
-                    DeviceId = deviceId,
-                    IsSystemSounds = isSystem
-                });
+                sessionCount = manager.Sessions.Count;
             }
             catch
             {
-                // Session may have expired between enumeration and query.
+                return result;
             }
-        }
 
-        return result;
+            for (var i = 0; i < sessionCount; i++)
+            {
+                AudioSessionControl session;
+                try
+                {
+                    session = manager.Sessions[i];
+                }
+                catch
+                {
+                    continue;
+                }
+
+                try
+                {
+                    var pid = GetSessionProcessId(session);
+                    var processName = pid > 0 ? GetProcessName((int)pid) : string.Empty;
+                    var isSystem = IsSystemSoundsSession(session, pid);
+
+                    result.Add(new AudioSessionInfo
+                    {
+                        Session = session,
+                        ProcessId = pid,
+                        ProcessName = processName,
+                        SessionId = GetSessionIdentifierSafe(session),
+                        DisplayName = session.DisplayName ?? string.Empty,
+                        DeviceName = deviceName,
+                        DeviceId = deviceId,
+                        IsSystemSounds = isSystem
+                    });
+                }
+                catch
+                {
+                    // Session may have expired between enumeration and query.
+                }
+            }
+
+            return result;
+        }
+        catch
+        {
+            return Array.Empty<AudioSessionInfo>();
+        }
+    }
+
+    private static string GetDeviceFriendlyNameSafe(MMDevice device)
+    {
+        try
+        {
+            return device.FriendlyName;
+        }
+        catch
+        {
+            return GetDeviceIdSafe(device);
+        }
+    }
+
+    private static string GetDeviceIdSafe(MMDevice device)
+    {
+        try
+        {
+            return device.ID;
+        }
+        catch
+        {
+            return string.Empty;
+        }
     }
 
     public static IReadOnlyList<AudioSessionInfo> GetSessionsOnDevice(string deviceNamePattern)

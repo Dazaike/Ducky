@@ -151,9 +151,16 @@ internal sealed class TargetSessionWatcher : IDisposable
 
         foreach (var device in SessionEnumerator.GetDevicesForTargetMonitoring(_targetProcess))
         {
-            var listener = new DeviceListener(this, device);
-            listener.Subscribe();
-            _deviceListeners.Add(listener);
+            try
+            {
+                var listener = new DeviceListener(this, device);
+                listener.Subscribe();
+                _deviceListeners.Add(listener);
+            }
+            catch (Exception ex)
+            {
+                DuckTrace.Write(_targetProcess, $"Device subscribe failed: {ex.Message}");
+            }
         }
 
         DuckTrace.Write(_targetProcess, $"Resubscribed on {_deviceListeners.Count} device(s), {_registeredSessions.Count} session handler(s)");
@@ -292,12 +299,36 @@ internal sealed class TargetSessionWatcher : IDisposable
 
         public void Subscribe()
         {
-            _manager = _device.AudioSessionManager;
-            _manager.OnSessionCreated += OnSessionCreated;
-
-            for (var i = 0; i < _manager.Sessions.Count; i++)
+            try
             {
-                _owner.TryRegisterSession(_manager.Sessions[i], _device);
+                _manager = _device.AudioSessionManager;
+                _manager.OnSessionCreated += OnSessionCreated;
+
+                int sessionCount;
+                try
+                {
+                    sessionCount = _manager.Sessions.Count;
+                }
+                catch
+                {
+                    return;
+                }
+
+                for (var i = 0; i < sessionCount; i++)
+                {
+                    try
+                    {
+                        _owner.TryRegisterSession(_manager.Sessions[i], _device);
+                    }
+                    catch
+                    {
+                        // Session may have expired during enumeration.
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                DuckTrace.Write(_owner.TargetProcess, $"AudioSessionManager subscribe failed: {ex.Message}");
             }
         }
 

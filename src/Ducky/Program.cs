@@ -2,6 +2,7 @@ using Ducky.Core;
 using Ducky.Core.Audio;
 using Ducky.Core.Config;
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 
 namespace Ducky;
 
@@ -10,6 +11,29 @@ static class Program
     [STAThread]
     static void Main()
     {
+        ComWrappers.RegisterForMarshalling(WinFormsComInterop.WinFormsComWrappers.Instance);
+
+        AppDomain.CurrentDomain.UnhandledException += (_, e) =>
+        {
+            if (e.ExceptionObject is Exception ex)
+            {
+                CrashLog.Write(ex);
+            }
+            else
+            {
+                CrashLog.Write(new Exception(e.ExceptionObject?.ToString() ?? "Unknown unhandled exception"));
+            }
+
+            Environment.Exit(1);
+        };
+
+        Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
+        Application.ThreadException += (_, e) =>
+        {
+            CrashLog.Write(e.Exception);
+            Environment.Exit(1);
+        };
+
         ApplicationConfiguration.Initialize();
         Application.Run(new DuckApplicationContext());
     }
@@ -63,8 +87,15 @@ internal sealed class DuckApplicationContext : ApplicationContext
         };
 
         UpdateTrayText();
-        _manager.ForceRestoreAll();
-        _manager.Start();
+        try
+        {
+            _manager.ForceRestoreAll();
+            _manager.Start();
+        }
+        catch (Exception ex)
+        {
+            CrashLog.Write(ex);
+        }
     }
 
     private void RestoreAudio()
