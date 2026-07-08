@@ -10,13 +10,6 @@
     <Product>Ducky Calibrate</Product>
     <AssemblyTitle>Ducky Calibrate</AssemblyTitle>
     <ApplicationIcon>..\..\assets\ducky.ico</ApplicationIcon>
-    <PublishAot>true</PublishAot>
-    <PublishTrimmed>true</PublishTrimmed>
-    <TrimMode>partial</TrimMode>
-    <InvariantGlobalization>true</InvariantGlobalization>
-    <EnableComHosting>false</EnableComHosting>
-    <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
-    <_SuppressWinFormsTrimError>true</_SuppressWinFormsTrimError>
   </PropertyGroup>
 
   <ItemGroup>
@@ -27,10 +20,6 @@
     <Content Include="..\..\assets\ducky.ico" Link="ducky.ico">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
-  </ItemGroup>
-
-  <ItemGroup>
-    <TrimmerRootDescriptor Include="rd.xml" />
   </ItemGroup>
 
 </Project>

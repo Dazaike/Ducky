@@ -1,4 +1,0 @@
-<Directives>
-  <assembly fullname="Ducky.Core" preserve="all" />
-  <assembly fullname="Ducky.Calibrate" preserve="all" />
-</Directives>

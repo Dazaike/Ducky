@@ -27,7 +27,7 @@ No installer required — download, run, and use the system tray icon.
 
 - **Calibration-first** — measure notification durations, then duck only on sustained playback
 - **Multi-app profiles** — separate thresholds per messaging app
-- **Smart gating** — only ducks when background audio is playing on your default output device (or a device you specify)
+- **Smart gating** — only ducks when background audio is playing on your default output device (or one or more devices you specify)
 - **Three modes** — instant mute, smooth volume duck with configurable fade, or media-key pause
 - **Low idle CPU** — event-driven session detection with polling fallback
 
@@ -49,7 +49,7 @@ Stored at `%AppData%\Ducky\settings.json` (tray → **Settings**).
 | `duckingMode` | `Mute` | `Mute`, `Duck`, or `Pause` |
 | `duckRatio` | `0.15` | Target volume when ducking |
 | `duckFadeMs` | `300` | Fade duration for Duck mode (50–1500 ms) |
-| `backgroundAudioDevicePattern` | *(empty)* | Comma-separated device name substrings; empty = Windows default output |
+| `backgroundAudioDevicePattern` | *(empty)* | Comma-separated device name substrings (e.g. `Sonar - Media, Sonar - Aux`); empty = Windows default output |
 | `requireBackgroundAudio` | `true` | Only duck when something is playing on the background device |
 
 ## Build from source
@@ -69,13 +69,16 @@ dotnet run --project src/Ducky/Ducky.csproj
 dotnet run --project src/Ducky.Calibrate/Ducky.Calibrate.csproj
 ```
 
-### Native AOT publish
+### Publish release builds
 
 ```powershell
 .\scripts\publish-aot.ps1
 ```
 
-Output: `publish/Ducky/win-x64/Ducky.exe` and `publish/Ducky.Calibrate/win-x64/Ducky.Calibrate.exe`
+Produces self-contained single-file executables (bundles the .NET 8 runtime — no install required):
+
+- `publish/Ducky/win-x64/Ducky.exe`
+- `publish/Ducky.Calibrate/win-x64/Ducky.Calibrate.exe`
 
 ## How it works
 

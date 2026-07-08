@@ -22,7 +22,8 @@ function Publish-App {
         -c $Configuration `
         -r $Runtime `
         --self-contained `
-        -p:PublishAot=true `
+        -p:PublishSingleFile=true `
+        -p:IncludeNativeLibrariesForSelfExtract=true `
         -o $outputPath
 }
 

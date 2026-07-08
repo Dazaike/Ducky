@@ -2,6 +2,7 @@ using System.Diagnostics;
 using NAudio.CoreAudioApi;
 using NAudio.CoreAudioApi.Interfaces;
 
+using Ducky.Core;
 using Ducky.Core.Config;
 
 namespace Ducky.Core.Audio;
@@ -28,8 +29,9 @@ public static class SessionEnumerator
         {
             return new AotDeviceEnumerator();
         }
-        catch
+        catch (Exception ex)
         {
+            CrashLog.Write(ex);
             return null;
         }
     }
@@ -84,6 +86,15 @@ public static class SessionEnumerator
             _cachedBackgroundDeviceIds = new List<string>();
             TargetDeviceCache.Clear();
         }
+    }
+
+    /// <summary>
+    /// Forces WASAPI device enumeration before WinForms COM wrappers are registered.
+    /// </summary>
+    public static int WarmUpAudioSubsystem()
+    {
+        _ = GetDefaultRenderDeviceSafe();
+        return GetActiveRenderDevices(forceRefresh: true).Count;
     }
 
     public static void InvalidateTargetDeviceCache(string? processName = null)
@@ -209,7 +220,14 @@ public static class SessionEnumerator
                 DateTime.UtcNow - _backgroundDeviceCachedUtc < DeviceCacheTtl &&
                 _cachedBackgroundDeviceIds.Count > 0)
             {
-                return ResolveDevicesById(_cachedBackgroundDeviceIds);
+                var cached = ResolveDevicesById(_cachedBackgroundDeviceIds, allowDefaultFallback: false);
+                if (cached.Count > 0)
+                {
+                    return cached;
+                }
+
+                _cachedBackgroundPattern = null;
+                _cachedBackgroundDeviceIds.Clear();
             }
         }
 
@@ -220,7 +238,7 @@ public static class SessionEnumerator
         {
             foreach (var device in GetActiveRenderDevices())
             {
-                if (!seenIds.Add(device.ID))
+                if (seenIds.Contains(device.ID))
                 {
                     continue;
                 }
@@ -232,16 +250,15 @@ public static class SessionEnumerator
                 }
                 catch
                 {
-                    seenIds.Remove(device.ID);
                     continue;
                 }
 
                 if (!friendlyName.Contains(pattern, StringComparison.OrdinalIgnoreCase))
                 {
-                    seenIds.Remove(device.ID);
                     continue;
                 }
 
+                seenIds.Add(device.ID);
                 devices.Add(device);
             }
         }
@@ -286,10 +303,10 @@ public static class SessionEnumerator
             }
         }
 
-        return ResolveDevicesById(deviceIds);
+        return ResolveDevicesById(deviceIds, allowDefaultFallback: true);
     }
 
-    private static List<MMDevice> ResolveDevicesById(IEnumerable<string> deviceIds)
+    private static List<MMDevice> ResolveDevicesById(IEnumerable<string> deviceIds, bool allowDefaultFallback)
     {
         var devices = new List<MMDevice>();
         var activeDevices = EnumerateActiveRenderDevices();
@@ -303,7 +320,7 @@ public static class SessionEnumerator
             }
         }
 
-        if (devices.Count == 0)
+        if (devices.Count == 0 && allowDefaultFallback)
         {
             var fallback = GetDefaultRenderDeviceSafe();
             if (fallback is not null)
@@ -503,6 +520,20 @@ public static class SessionEnumerator
         }
 
         var targetName = NormalizeProcessName(targetProcess);
+        foreach (var device in FindRenderDevicesByPatterns(settings.BackgroundAudioDevicePattern))
+        {
+            if (IsDeviceOutputtingAudio(device, settings.PeakThreshold))
+            {
+                foreach (var info in GetRenderSessions(device))
+                {
+                    if (!IsSkippedForDucking(info, targetName, selfPid, settings.ExcludedProcesses))
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+
         foreach (var info in GetSessionsOnDevice(settings.BackgroundAudioDevicePattern))
         {
             if (IsSkippedForDucking(info, targetName, selfPid, settings.ExcludedProcesses))
@@ -514,6 +545,38 @@ public static class SessionEnumerator
             {
                 return true;
             }
+        }
+
+        return false;
+    }
+
+    public static bool IsDeviceOutputtingAudio(MMDevice device, float peakThreshold)
+    {
+        try
+        {
+            return device.AudioMeterInformation.MasterPeakValue > peakThreshold;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    public static bool ShouldDuckSession(AudioSessionInfo info, float peakThreshold)
+    {
+        if (IsSessionActivelyPlaying(info, peakThreshold))
+        {
+            return true;
+        }
+
+        foreach (var device in GetActiveRenderDevices())
+        {
+            if (!device.ID.Equals(info.DeviceId, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            return IsDeviceOutputtingAudio(device, peakThreshold);
         }
 
         return false;

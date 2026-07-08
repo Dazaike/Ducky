@@ -125,7 +125,7 @@ public sealed class DuckingController
             }
 
             if (settings.OnlyDuckActiveSessions &&
-                !SessionEnumerator.IsSessionActivelyPlaying(info, settings.PeakThreshold))
+                !SessionEnumerator.ShouldDuckSession(info, settings.PeakThreshold))
             {
                 continue;
             }

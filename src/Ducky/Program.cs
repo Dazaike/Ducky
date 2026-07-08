@@ -2,7 +2,6 @@ using Ducky.Core;
 using Ducky.Core.Audio;
 using Ducky.Core.Config;
 using System.Diagnostics;
-using System.Runtime.InteropServices;
 
 namespace Ducky;
 
@@ -11,7 +10,7 @@ static class Program
     [STAThread]
     static void Main()
     {
-        ComWrappers.RegisterForMarshalling(WinFormsComInterop.WinFormsComWrappers.Instance);
+        _ = SessionEnumerator.WarmUpAudioSubsystem();
 
         AppDomain.CurrentDomain.UnhandledException += (_, e) =>
         {
