@@ -15,7 +15,7 @@ public sealed class DuckingSettings
     /// <summary>Only duck when audio is actively playing on the background device.</summary>
     public bool RequireBackgroundAudio { get; set; } = true;
 
-    /// <summary>Substring matched against device friendly name. Empty uses the default output device.</summary>
+    /// <summary>Comma-separated substrings matched against device friendly names. Empty uses the default output device.</summary>
     public string BackgroundAudioDevicePattern { get; set; } = string.Empty;
 
     /// <summary>Only mute sessions that are currently outputting audio above PeakThreshold.</summary>

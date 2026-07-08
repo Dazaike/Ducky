@@ -95,6 +95,7 @@ public sealed class SettingsForm : Form
         _backgroundDevicePattern = new TextBox
         {
             Text = _working.BackgroundAudioDevicePattern,
+            PlaceholderText = "e.g. Sonar - Media, Sonar - Aux",
             Dock = DockStyle.Fill
         };
         _onlyDuckActiveSessions = new CheckBox
@@ -125,7 +126,7 @@ public sealed class SettingsForm : Form
         AddRow(layout, 8, "Duck ratio", _duckRatio);
         AddRow(layout, 9, "Duck fade speed", fadePanel);
         AddRow(layout, 10, "Excluded processes", _excludedProcesses);
-        AddRow(layout, 11, "Background device match", _backgroundDevicePattern);
+        AddRow(layout, 11, "Background devices", _backgroundDevicePattern);
         AddRow(layout, 12, "", _requireBackgroundAudio);
 
         UpdateFadeControls();

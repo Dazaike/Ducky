@@ -49,7 +49,7 @@ Stored at `%AppData%\Ducky\settings.json` (tray → **Settings**).
 | `duckingMode` | `Mute` | `Mute`, `Duck`, or `Pause` |
 | `duckRatio` | `0.15` | Target volume when ducking |
 | `duckFadeMs` | `300` | Fade duration for Duck mode (50–1500 ms) |
-| `backgroundAudioDevicePattern` | *(empty)* | Substring to match an output device; empty = Windows default output |
+| `backgroundAudioDevicePattern` | *(empty)* | Comma-separated device name substrings; empty = Windows default output |
 | `requireBackgroundAudio` | `true` | Only duck when something is playing on the background device |
 
 ## Build from source

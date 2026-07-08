@@ -38,7 +38,7 @@ public static class SessionEnumerator
     private static readonly TimeSpan TargetDeviceCacheTtl = TimeSpan.FromSeconds(15);
 
     private static string? _cachedBackgroundPattern;
-    private static MMDevice? _cachedBackgroundDevice;
+    private static List<string> _cachedBackgroundDeviceIds = new();
     private static DateTime _backgroundDeviceCachedUtc;
 
     private static readonly Dictionary<string, TargetDeviceCacheEntry> TargetDeviceCache = new(StringComparer.OrdinalIgnoreCase);
@@ -81,7 +81,7 @@ public static class SessionEnumerator
         lock (CacheLock)
         {
             _cachedBackgroundPattern = null;
-            _cachedBackgroundDevice = null;
+            _cachedBackgroundDeviceIds = new List<string>();
             TargetDeviceCache.Clear();
         }
     }
@@ -180,70 +180,86 @@ public static class SessionEnumerator
         }
     }
 
-    public static MMDevice? FindRenderDeviceByPattern(string deviceNamePattern)
+    public static IReadOnlyList<string> ParseDevicePatterns(string devicePatterns)
     {
-        if (string.IsNullOrWhiteSpace(deviceNamePattern))
+        if (string.IsNullOrWhiteSpace(devicePatterns))
         {
-            return GetDefaultRenderDevice();
+            return Array.Empty<string>();
         }
 
-        string? cachedDeviceId = null;
+        return devicePatterns
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(pattern => !string.IsNullOrWhiteSpace(pattern))
+            .ToList();
+    }
+
+    public static IReadOnlyList<MMDevice> FindRenderDevicesByPatterns(string devicePatterns)
+    {
+        var patterns = ParseDevicePatterns(devicePatterns);
+        if (patterns.Count == 0)
+        {
+            var defaultDevice = GetDefaultRenderDeviceSafe();
+            return defaultDevice is null ? Array.Empty<MMDevice>() : new[] { defaultDevice };
+        }
+
         lock (CacheLock)
         {
-            if (_cachedBackgroundDevice is not null &&
-                _cachedBackgroundPattern is not null &&
-                _cachedBackgroundPattern.Equals(deviceNamePattern, StringComparison.OrdinalIgnoreCase) &&
-                DateTime.UtcNow - _backgroundDeviceCachedUtc < DeviceCacheTtl)
+            if (_cachedBackgroundPattern is not null &&
+                _cachedBackgroundPattern.Equals(devicePatterns, StringComparison.OrdinalIgnoreCase) &&
+                DateTime.UtcNow - _backgroundDeviceCachedUtc < DeviceCacheTtl &&
+                _cachedBackgroundDeviceIds.Count > 0)
             {
-                cachedDeviceId = _cachedBackgroundDevice.ID;
+                return ResolveDevicesById(_cachedBackgroundDeviceIds);
             }
         }
 
-        if (cachedDeviceId is not null)
+        var devices = new List<MMDevice>();
+        var seenIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var pattern in patterns)
         {
             foreach (var device in GetActiveRenderDevices())
             {
-                if (device.ID.Equals(cachedDeviceId, StringComparison.OrdinalIgnoreCase))
+                if (!seenIds.Add(device.ID))
                 {
-                    return device;
+                    continue;
                 }
-            }
-        }
 
-        foreach (var device in GetActiveRenderDevices())
-        {
-            string friendlyName;
-            try
-            {
-                friendlyName = GetDeviceFriendlyNameSafe(device);
-            }
-            catch
-            {
-                continue;
-            }
+                string friendlyName;
+                try
+                {
+                    friendlyName = GetDeviceFriendlyNameSafe(device);
+                }
+                catch
+                {
+                    seenIds.Remove(device.ID);
+                    continue;
+                }
 
-            if (!friendlyName.Contains(deviceNamePattern, StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
+                if (!friendlyName.Contains(pattern, StringComparison.OrdinalIgnoreCase))
+                {
+                    seenIds.Remove(device.ID);
+                    continue;
+                }
 
-            lock (CacheLock)
-            {
-                _cachedBackgroundPattern = deviceNamePattern;
-                _cachedBackgroundDevice = device;
-                _backgroundDeviceCachedUtc = DateTime.UtcNow;
+                devices.Add(device);
             }
-
-            return device;
         }
 
         lock (CacheLock)
         {
-            _cachedBackgroundPattern = deviceNamePattern;
-            _cachedBackgroundDevice = null;
+            _cachedBackgroundPattern = devicePatterns;
+            _cachedBackgroundDeviceIds = devices.Select(d => d.ID).ToList();
+            _backgroundDeviceCachedUtc = DateTime.UtcNow;
         }
 
-        return null;
+        return devices;
+    }
+
+    public static MMDevice? FindRenderDeviceByPattern(string deviceNamePattern)
+    {
+        var devices = FindRenderDevicesByPatterns(deviceNamePattern);
+        return devices.Count > 0 ? devices[0] : null;
     }
 
     public static IReadOnlyList<MMDevice> GetDevicesForTargetMonitoring(string processName)
@@ -464,15 +480,16 @@ public static class SessionEnumerator
         }
     }
 
-    public static IReadOnlyList<AudioSessionInfo> GetSessionsOnDevice(string deviceNamePattern)
+    public static IReadOnlyList<AudioSessionInfo> GetSessionsOnDevice(string devicePatterns)
     {
-        var device = FindRenderDeviceByPattern(deviceNamePattern);
-        if (device is null)
+        var result = new List<AudioSessionInfo>();
+
+        foreach (var device in FindRenderDevicesByPatterns(devicePatterns))
         {
-            return Array.Empty<AudioSessionInfo>();
+            result.AddRange(GetRenderSessionsForDevice(device));
         }
 
-        return GetRenderSessionsForDevice(device);
+        return result;
     }
 
     public static bool HasActiveBackgroundAudio(
